@@ -1,0 +1,31 @@
+[project]
+name = "openweb-ui-configs"
+version = "0.1.0"
+description = "OpenWebUI configuration repository with custom pipes/valves and testing utilities"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0.0",
+    "httpx[http2]>=0.24.0",
+    "openai>=1.7.1,<2.0.0",
+    "crewai>=0.95.0",
+    "exa-py>=1.0.0",
+    "langchain-openai>=0.1.0",
+    "litellm>=1.56.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["functions"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = []
