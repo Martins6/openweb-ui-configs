@@ -104,7 +104,8 @@ openweb-ui-configs/
 └── functions/         # OpenWebUI pipes/valves
     ├── test_valve.py  # Generic testing script for all functions
     ├── perplexity_sonar_api_with_citations.py  # Perplexity Sonar integration
-    └── exa_crewai_answer.py  # Exa + CrewAI integration
+    ├── exa_crewai_answer.py  # Exa + CrewAI integration (legacy)
+    └── exa_openrouter_direct.py  # Exa + OpenRouter direct integration
 ```
 
 ## Available Functions
@@ -142,11 +143,11 @@ openweb-ui-configs/
 5. Start chatting - citations will appear automatically
 
 
-### Exa CrewAI Answer Manifold Pipe
+### Exa OpenRouter Direct Answer Pipe
 
-**File**: `functions/exa_crewai_answer.py`
+**File**: `functions/exa_openrouter_direct.py`
 
-**Description**: Integrates Exa search APIs with CrewAI framework to provide intelligent web search and code documentation retrieval with AI-powered synthesis.
+**Description**: Direct integration of Exa search APIs with OpenRouter's native tool calling for fast, lean web search and code documentation retrieval.
 
 **Version**: 0.1.0
 **Author**: adrielmartins
@@ -173,7 +174,7 @@ openweb-ui-configs/
 1. Get API keys from [Exa AI](https://exa.ai/) and [OpenRouter](https://openrouter.ai/)
 2. Add the function to OpenWebUI
 3. Configure the valve settings with both API keys
-4. Select the "Exa CrewAI Answer" model from the dropdown
+4. Select the "Exa OpenRouter Direct" model from the dropdown
 5. Start chatting - the system will automatically choose the best search tool based on your query
 
 **Recommended Models via OpenRouter**:
@@ -182,12 +183,20 @@ openweb-ui-configs/
 - `anthropic/claude-3.5-sonnet` - Great for technical questions
 - `openai/gpt-4-turbo` - Good all-around performance
 
+**Benefits over CrewAI version**:
+
+- **60% smaller codebase** (~220 lines vs 550 lines)
+- **Faster execution** with direct API calls
+- **No CrewAI dependency** - leaner and more direct
+- **Native tool calling** through OpenRouter
+- **Same functionality** with context handling and citations
+
 ## Quick Reference
 
 | Function | File | Required API Keys | Special Features |
 |----------|------|-------------------|------------------|
 | Perplexity Sonar | `perplexity_sonar_api_with_citations.py` | PERPLEXITY_API_KEY | Web search with citations, multiple Sonar models |
-| Exa CrewAI | `exa_crewai_answer.py` | EXA_API_KEY, OPENROUTER_API_KEY | Intelligent search tool selection, code documentation focus |
+| Exa OpenRouter Direct | `exa_openrouter_direct.py` | EXA_API_KEY, OPENROUTER_API_KEY | Fast direct tool calling, code documentation focus, 60% smaller |
 ## Testing Functions
 
 Use the generic test script to test any function locally before deploying to OpenWebUI:
@@ -236,7 +245,7 @@ Enter your test message: What are the latest developments in AI?
 [Streaming response appears here with citations]
 ```
 
-### Testing Exa CrewAI
+### Testing Exa OpenRouter Direct
 ```
 Select function [1]: 2
 
@@ -248,7 +257,7 @@ EMIT_SOURCES [True]:
 TIMEOUT [60]:
 
 Available pipes:
-1. Exa CrewAI Answer
+1. Exa OpenRouter Direct
 
 Select pipe [1]: 1
 
