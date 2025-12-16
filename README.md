@@ -50,7 +50,7 @@ Access OpenWebUI at: **<http://localhost:3001>**
 
 **Important Notes**:
 - First startup may take 5-10 minutes for database initialization and model downloads
-- All required dependencies (crewai, exa-py, etc.) are pre-installed
+- All required dependencies are pre-installed
 - Functions must still be added manually through the interface
 
 #### Option 2: Standard Docker Installation
@@ -104,7 +104,6 @@ openweb-ui-configs/
 └── functions/         # OpenWebUI pipes/valves
     ├── test_valve.py  # Generic testing script for all functions
     ├── perplexity_sonar_api_with_citations.py  # Perplexity Sonar integration
-    ├── exa_crewai_answer.py  # Exa + CrewAI integration (legacy)
     └── exa_openrouter_direct.py  # Exa + OpenRouter direct integration
 ```
 
@@ -378,10 +377,6 @@ The custom image includes all dependencies from `pyproject.toml`:
 - `pydantic>=2.0.0` - Valve configuration models
 - `httpx[http2]>=0.24.0` - HTTP/API calls with HTTP/2
 - `openai>=1.7.1,<2.0.0` - OpenAI API client
-- `crewai>=0.95.0` - AI agent framework
-- `exa-py>=1.0.0` - Exa search API
-- `langchain-openai>=0.1.0` - LangChain OpenAI integration
-- `litellm>=1.56.4` - LLM proxy and gateway
 
 **Note**: These dependencies are available for use in custom functions, but functions must be added manually through the OpenWebUI interface.
 
@@ -495,7 +490,7 @@ All functions must follow the code style and standards defined in `CLAUDE.md`:
 - [Perplexity AI API](https://docs.perplexity.ai/)
 - [Exa AI API](https://docs.exa.ai/)
 - [OpenRouter API](https://openrouter.ai/docs)
-- [CrewAI Documentation](https://docs.crewai.com/)
+
 
 ### Development Tools
 - [UV Package Manager](https://github.com/astral-sh/uv)
