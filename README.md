@@ -8,10 +8,13 @@ This repository contains all the documentation and functions necessary to set up
 - [Installation](#installation)
 - [Directory Structure](#directory-structure)
 - [Available Functions](#available-functions)
+- [Quick Reference](#quick-reference)
 - [Testing Functions](#testing-functions)
 - [Configuration](#configuration)
 - [Docker Deployment](#docker-deployment)
+- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
+- [Resources](#resources)
 
 ## Overview
 
@@ -33,7 +36,7 @@ OpenWebUI is a self-hosted web interface for AI models. This repository provides
 
 #### Option 1: Docker with Custom Dependencies (Recommended)
 
-This repository includes a custom Docker image that comes with all dependencies pre-installed.
+This repository includes a custom Docker image with all dependencies pre-installed for both Perplexity and Exa functions.
 
 ```bash
 # Quick start with Docker Compose
@@ -43,9 +46,12 @@ docker compose up -d
 ./update.sh
 ```
 
-Access OpenWebUI at: **http://localhost:3001**
+Access OpenWebUI at: **<http://localhost:3001>**
 
-**Note**: The first startup may take 5-10 minutes as OpenWebUI initializes its database and downloads models.
+**Important Notes**:
+- First startup may take 5-10 minutes for database initialization and model downloads
+- All required dependencies (crewai, exa-py, etc.) are pre-installed
+- Functions must still be added manually through the interface
 
 #### Option 2: Standard Docker Installation
 
@@ -53,10 +59,19 @@ Access OpenWebUI at: **http://localhost:3001**
 docker run -d -p 3000:8080 --name open-webui ghcr.io/open-webui/open-webui:main
 ```
 
+**Limitation**: You'll need to manually install dependencies for custom functions.
+
 #### Option 3: Local Python Installation
 
 ```bash
+# Install OpenWebUI
 pip install open-webui
+
+# Install project dependencies for custom functions
+cd /path/to/openweb-ui-configs
+uv sync
+
+# Start OpenWebUI
 open-webui serve
 ```
 
@@ -64,31 +79,32 @@ open-webui serve
 
 After setting up OpenWebUI:
 
-1. Access the interface at `http://localhost:3001` (Docker) or `http://localhost:3000` (standard)
-2. Complete initial setup
-3. Go to Settings → Functions
-4. Click "+" to add a new function
-5. Copy/paste the content from any `.py` file in the `functions/` directory
-6. Configure the valve settings (API keys, options, etc.)
+1. Access the interface at `http://localhost:3001` (custom Docker) or `http://localhost:3000` (standard)
+2. Complete the initial setup wizard
+3. Navigate to **Settings → Functions**
+4. Click **"+"** to add a new function
+5. Copy/paste the entire content from any `.py` file in the `functions/` directory
+6. Configure the valve settings with your API keys and preferences
+7. Save and test the function
 
-**Important**: Functions must be added manually through the OpenWebUI interface. The custom Docker image provides the dependencies but does not auto-load functions.
+**Critical**: Functions must be added manually through the OpenWebUI interface. The custom Docker image only provides the runtime dependencies.
 
 ## Directory Structure
 
 ```
 openweb-ui-configs/
-├── CLAUDE.md          # Claude Code specific instructions
 ├── README.md          # This file
-├── DOCKER.md          # Docker deployment documentation
+├── CLAUDE.md          # Claude-specific development instructions
 ├── pyproject.toml     # Python project configuration with dependencies
 ├── Dockerfile         # Custom OpenWebUI image with dependencies
-├── docker-compose.yml # Docker Compose configuration
-├── build.sh           # Script to build custom image
 ├── update.sh          # Script to update OpenWebUI with dependencies
+├── .python-version    # Python version specification
+├── .gitignore         # Git ignore rules
+├── uv.lock           # Dependency lock file
 └── functions/         # OpenWebUI pipes/valves
-    ├── open_webui/    # Mock OpenWebUI utilities for testing
     ├── test_valve.py  # Generic testing script for all functions
-    └── *.py           # Individual pipe/valve functions
+    ├── perplexity_sonar_api_with_citations.py  # Perplexity Sonar integration
+    └── exa_crewai_answer.py  # Exa + CrewAI integration
 ```
 
 ## Available Functions
@@ -125,6 +141,53 @@ openweb-ui-configs/
 4. Select a Sonar model from the model dropdown
 5. Start chatting - citations will appear automatically
 
+
+### Exa CrewAI Answer Manifold Pipe
+
+**File**: `functions/exa_crewai_answer.py`
+
+**Description**: Integrates Exa search APIs with CrewAI framework to provide intelligent web search and code documentation retrieval with AI-powered synthesis.
+
+**Version**: 0.1.0
+**Author**: adrielmartins
+
+**Available Tools**:
+
+- **Exa Answer Search**: General web search for current events and information
+- **Exa Context Search**: Specialized search for code documentation, GitHub repos, and Stack Overflow
+
+**Required Configuration**:
+
+- `EXA_API_KEY`: Your Exa API key (required)
+- `OPENROUTER_API_KEY`: Your OpenRouter API key for LLM access (required)
+- `EXA_API_BASE_URL`: Exa API base URL (default: https://api.exa.ai)
+- `OPENROUTER_API_BASE_URL`: OpenRouter API base URL (default: https://openrouter.ai/api/v1)
+- `OPENROUTER_MODEL`: Model to use via OpenRouter (default: moonshotai/kimi-k2-thinking)
+- `EXA_TEXT_PARAMETER`: Whether to include full text content (default: false)
+- `EXA_CONTEXT_TOKENS_NUM`: Number of tokens for context search (default: 5000)
+- `EMIT_SOURCES`: Whether to emit citation sources (default: true)
+- `TIMEOUT`: Request timeout in seconds (default: 60)
+
+**Usage**:
+
+1. Get API keys from [Exa AI](https://exa.ai/) and [OpenRouter](https://openrouter.ai/)
+2. Add the function to OpenWebUI
+3. Configure the valve settings with both API keys
+4. Select the "Exa CrewAI Answer" model from the dropdown
+5. Start chatting - the system will automatically choose the best search tool based on your query
+
+**Recommended Models via OpenRouter**:
+
+- `moonshotai/kimi-k2-thinking` - Excellent for research and analysis (default)
+- `anthropic/claude-3.5-sonnet` - Great for technical questions
+- `openai/gpt-4-turbo` - Good all-around performance
+
+## Quick Reference
+
+| Function | File | Required API Keys | Special Features |
+|----------|------|-------------------|------------------|
+| Perplexity Sonar | `perplexity_sonar_api_with_citations.py` | PERPLEXITY_API_KEY | Web search with citations, multiple Sonar models |
+| Exa CrewAI | `exa_crewai_answer.py` | EXA_API_KEY, OPENROUTER_API_KEY | Intelligent search tool selection, code documentation focus |
 ## Testing Functions
 
 Use the generic test script to test any function locally before deploying to OpenWebUI:
@@ -143,11 +206,13 @@ The test script will:
 5. Accept a test message
 6. Display the streaming response with citations/sources
 
-**Example Session**:
+**Example Sessions**:
 
+### Testing Perplexity Sonar
 ```
 Available functions:
 1. perplexity_sonar_api_with_citations.py
+2. exa_crewai_answer.py
 
 Select function [1]: 1
 
@@ -171,6 +236,27 @@ Enter your test message: What are the latest developments in AI?
 [Streaming response appears here with citations]
 ```
 
+### Testing Exa CrewAI
+```
+Select function [1]: 2
+
+Configure Valves:
+EXA_API_KEY: your_exa_key_here
+OPENROUTER_API_KEY: your_openrouter_key_here
+OPENROUTER_MODEL [moonshotai/kimi-k2-thinking]:
+EMIT_SOURCES [True]:
+TIMEOUT [60]:
+
+Available pipes:
+1. Exa CrewAI Answer
+
+Select pipe [1]: 1
+
+Enter your test message: How do I implement async/await in Python?
+
+[Streaming response appears here with code examples and sources]
+```
+
 ## Configuration
 
 ### Installing Dependencies
@@ -182,20 +268,33 @@ uv sync
 ```
 
 This will install:
-- `pydantic` - For valve configuration models
-- `httpx` - For HTTP/API calls with HTTP/2 support
+
+- `pydantic>=2.0.0` - For valve configuration models
+- `httpx[http2]>=0.24.0` - For HTTP/API calls with HTTP/2 support
+- `openai>=1.7.1,<2.0.0` - OpenAI API client
+- `crewai>=0.95.0` - AI agent framework
+- `exa-py>=1.0.0` - Exa search API
+- `langchain-openai>=0.1.0` - LangChain OpenAI integration
+- `litellm>=1.56.4` - LLM proxy and gateway
 
 ### Valve Configuration
 
 Each function has its own valve configuration. See the function's docstring for available options.
 
-### Mock OpenWebUI Utilities
+### Valve Configuration
 
-The `functions/open_webui/` directory contains mock utilities that allow functions to run standalone for testing. These utilities replicate the behavior of OpenWebUI's internal modules:
+Each function has its own valve configuration. See the function's docstring for available options.
 
-- `open_webui.utils.misc.pop_system_message` - Extracts system messages from message lists
+### Testing Utilities
 
-When deploying to OpenWebUI, the real OpenWebUI modules are used instead.
+The `functions/test_valve.py` script provides a comprehensive testing environment that:
+- Discovers all available functions automatically
+- Provides interactive configuration for valve settings
+- Supports both streaming and non-streaming modes
+- Handles citation/source display
+- Works with multiple pipes/models per function
+
+When deploying to OpenWebUI, the real OpenWebUI modules are used instead of the testing utilities.
 
 ## Docker Deployment
 
@@ -216,12 +315,14 @@ docker-compose up -d
 #### `update.sh` - Complete Update Process (Recommended)
 
 **What it does:**
+
 - Stops and removes existing container
 - Pulls latest OpenWebUI base image
 - Rebuilds custom image with your dependencies
 - Starts new container with updated image
 
 **When to use:**
+
 - First-time setup
 - Updating OpenWebUI to new versions
 - Complete redeployment
@@ -233,11 +334,13 @@ docker-compose up -d
 #### `build.sh` - Image Building Only
 
 **What it does:**
+
 - Pulls latest OpenWebUI base image
 - Builds custom image with dependencies
 - **Does NOT** touch running containers
 
 **When to use:**
+
 - Just rebuilding dependencies
 - Development when you don't want downtime
 - Creating image without deployment
@@ -319,18 +422,77 @@ docker run -d \
 
 ### Documentation Standards
 
-- Include docstrings for all classes and methods
-- Add usage examples
-- Document all configuration options
-- Update README.md when adding functions
+All functions must follow the code style and standards defined in `CLAUDE.md`:
+
+- Include proper module-level docstring with title, author, author_url, funding_url, and version
+- Add comprehensive docstrings for the `Valves` class explaining each configuration option
+- Use type hints throughout the code
+- Follow async/await patterns for API calls
+- Handle errors gracefully with try/except blocks
+- Test both streaming and non-streaming modes when applicable
+- Verify citation/source handling if applicable
+
+### Adding New Functions Workflow
+
+1. Create new function in `functions/` directory following OpenWebUI pipe/valve structure
+2. Test using `uv run functions/test_valve.py`
+3. Update README.md with function documentation under [Available Functions](#available-functions)
+4. Update the [Quick Reference](#quick-reference) table
+5. Add any new dependencies to `pyproject.toml` if needed
+6. Commit with clear description of what the function does
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+**Function Not Appearing in OpenWebUI**
+- Ensure the function code is properly copied into the OpenWebUI interface
+- Check that all required dependencies are installed in the Docker image
+- Verify the function follows the correct OpenWebUI pipe/valve structure
+
+**API Key Errors**
+- Double-check API keys are correctly entered in valve settings
+- Ensure API keys have the required permissions
+- Verify API endpoints are accessible from your network
+
+**Timeout Issues**
+- Increase the TIMEOUT valve setting for slower APIs
+- Check network connectivity to external services
+- Consider using faster models for testing
+
+**Citation/Source Issues**
+- Ensure EMIT_SOURCES is set to true in valve settings
+- Check that the API returns citation data
+- Verify the function properly processes citation metadata
+
+**Docker Build Failures**
+- Run `./update.sh` to rebuild with latest dependencies
+- Check that `pyproject.toml` has correct dependency versions
+- Ensure Docker has sufficient disk space
+
+### Getting Help
+
+- Check the function logs in OpenWebUI interface
+- Test functions locally using `uv run functions/test_valve.py`
+- Review the documentation for specific API requirements
 
 ## Resources
 
+### OpenWebUI
 - [OpenWebUI Documentation](https://docs.openwebui.com/)
 - [OpenWebUI GitHub](https://github.com/open-webui/open-webui)
+
+### API Documentation
 - [Perplexity AI API](https://docs.perplexity.ai/)
+- [Exa AI API](https://docs.exa.ai/)
+- [OpenRouter API](https://openrouter.ai/docs)
+- [CrewAI Documentation](https://docs.crewai.com/)
+
+### Development Tools
+- [UV Package Manager](https://github.com/astral-sh/uv)
+- [Docker Documentation](https://docs.docker.com/)
+- [Python Async/Await](https://docs.python.org/3/library/asyncio.html)
 
 ## License
 
 See individual function files for licensing information.
-
