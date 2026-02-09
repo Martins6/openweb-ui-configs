@@ -313,10 +313,93 @@ class Pipe:
                 context += f"Assistant: {content}\n\n"
         return context
 
+    def _parse_sse_line(self, line: str) -> dict | None:
+        """
+        Parse a Server-Sent Events (SSE) line from OpenRouter streaming response.
+
+        Args:
+            line: A single line from the SSE stream.
+
+        Returns:
+            Parsed JSON data from the line, or None for non-data/empty lines.
+        """
+        if not line or not line.startswith("data:"):
+            return None
+
+        # Remove "data:" prefix and strip whitespace
+        data_str = line[5:].strip()
+
+        # Handle termination signal
+        if data_str == "[DONE]":
+            return None
+
+        try:
+            return json.loads(data_str)
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse SSE line: {line}")
+            return None
+
+    def _parse_tool_calls_from_stream(self, deltas: list[dict]) -> list[dict]:
+        """
+        Accumulate tool calls from streaming deltas.
+
+        Tool calls can be fragmented across multiple chunks. This method
+        merges them by index to build complete tool call objects.
+
+        Args:
+            deltas: List of delta dictionaries from streaming response.
+
+        Returns:
+            List of complete tool call dictionaries.
+        """
+        tool_calls_by_index: dict[int, dict] = {}
+
+        for delta in deltas:
+            tool_call_deltas = delta.get("tool_calls", [])
+            for tc_delta in tool_call_deltas:
+                idx = tc_delta.get("index", 0)
+                if idx not in tool_calls_by_index:
+                    tool_calls_by_index[idx] = {"id": "", "function": {"name": "", "arguments": ""}}
+
+                # Accumulate ID
+                if "id" in tc_delta:
+                    tool_calls_by_index[idx]["id"] = tc_delta["id"]
+
+                # Accumulate function name
+                if "function" in tc_delta and "name" in tc_delta["function"]:
+                    tool_calls_by_index[idx]["function"]["name"] = tc_delta["function"]["name"]
+
+                # Accumulate function arguments
+                if "function" in tc_delta and "arguments" in tc_delta["function"]:
+                    tool_calls_by_index[idx]["function"]["arguments"] += tc_delta["function"][
+                        "arguments"
+                    ]
+
+        # Convert to list and filter out incomplete tool calls
+        complete_tool_calls = [
+            tc
+            for tc in tool_calls_by_index.values()
+            if tc["id"] and tc["function"]["name"] and tc["function"]["arguments"]
+        ]
+
+        # Sort by index to maintain order
+        complete_tool_calls.sort(key=lambda x: list(tool_calls_by_index.values()).index(x))
+
+        return complete_tool_calls
+
     async def _call_openrouter_with_tools(
         self, messages: list[dict], all_citations: list[dict]
     ) -> tuple[str, list[dict]]:
-        """Call OpenRouter API with tool definitions and handle tool calls."""
+        """
+        Call OpenRouter API with tool definitions and handle tool calls (non-streaming).
+
+        Args:
+            messages: List of message dictionaries.
+            all_citations: List to accumulate citations from tool results.
+
+        Returns:
+            tuple of (response_text, citations_list)
+        """
         headers = {
             "Authorization": f"Bearer {self.valves.OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
@@ -352,7 +435,7 @@ class Pipe:
                     return message.get("content", ""), all_citations
 
                 # Handle tool calls
-                messages.append(message)  # Add assistant message with tool calls
+                messages.append(message)
 
                 for tool_call in tool_calls:
                     function_name = tool_call["function"]["name"]
@@ -388,7 +471,6 @@ class Pipe:
                     else:
                         result = f"Unknown tool: {function_name}"
 
-                    # Add tool result to messages
                     messages.append(
                         {
                             "tool_call_id": tool_call["id"],
@@ -420,7 +502,6 @@ class Pipe:
                 if not result_text or not result_text.strip():
                     logger.warning("Empty response from OpenRouter, using fallback")
                     if all_citations:
-                        # If we have citations but no response, create a summary
                         result_text = f"Based on the search results I found, here's what I can tell you about your query. I found {len(all_citations)} relevant sources that should help answer your question."
                     else:
                         result_text = "I apologize, but I couldn't generate a response. Please try rephrasing your question."
@@ -434,6 +515,160 @@ class Pipe:
         except Exception as e:
             logger.exception("Error calling OpenRouter API")
             return f"Error: {str(e)}", all_citations
+
+    async def _call_openrouter_with_tools_streaming(
+        self, messages: list[dict], all_citations: list[dict]
+    ) -> AsyncGenerator[str, None]:
+        """
+        Call OpenRouter API with tool definitions and handle tool calls (streaming).
+
+        Args:
+            messages: List of message dictionaries.
+            all_citations: List to accumulate citations from tool results.
+
+        Yields:
+            Text chunks from the response.
+        """
+        headers = {
+            "Authorization": f"Bearer {self.valves.OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://openwebui.com",
+            "X-Title": "Exa OpenRouter Direct",
+        }
+
+        # Initial API call with tools
+        payload = {
+            "model": self.valves.OPENROUTER_MODEL,
+            "messages": messages,
+            "tools": TOOLS,
+            "tool_choice": "auto",
+            "temperature": 0.7,
+            "stream": True,
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.valves.OPENROUTER_API_BASE_URL}/chat/completions",
+                    json=payload,
+                    headers=headers,
+                    timeout=self.valves.TIMEOUT,
+                ) as r:
+                    r.raise_for_status()
+
+                    tool_call_deltas = []
+                    accumulated_message = {"role": "assistant", "tool_calls": []}
+
+                    async for line in r.aiter_lines():
+                        parsed = self._parse_sse_line(line)
+                        if not parsed:
+                            continue
+
+                        try:
+                            delta = parsed.get("choices", [{}])[0].get("delta", {})
+
+                            # Accumulate tool calls
+                            if "tool_calls" in delta:
+                                tool_call_deltas.append(delta)
+
+                            # If we have content, stream it immediately (no tools)
+                            if "content" in delta and delta["content"]:
+                                yield delta["content"]
+                        except (KeyError, IndexError) as e:
+                            logger.warning(f"Error parsing streaming response: {e}")
+                            continue
+
+                # Check if we accumulated any tool calls
+                if tool_call_deltas:
+                    tool_calls = self._parse_tool_calls_from_stream(tool_call_deltas)
+
+                    if not tool_calls:
+                        logger.warning("No complete tool calls accumulated")
+                        return
+
+                    # Handle tool calls (synchronous)
+                    accumulated_message["tool_calls"] = tool_calls
+                    messages.append(accumulated_message)
+
+                    for tool_call in tool_calls:
+                        function_name = tool_call["function"]["name"]
+                        function_args = json.loads(tool_call["function"]["arguments"])
+
+                        if function_name == "exa_answer_search":
+                            if not self.valves.EXA_API_KEY:
+                                result = "Error: EXA_API_KEY not configured"
+                                citations = []
+                            else:
+                                result, citations = await exa_answer_search(
+                                    query=function_args["query"],
+                                    api_key=self.valves.EXA_API_KEY,
+                                    base_url=self.valves.EXA_API_BASE_URL,
+                                    text=self.valves.EXA_TEXT_PARAMETER,
+                                    timeout=self.valves.TIMEOUT,
+                                )
+                            all_citations.extend(citations)
+                        elif function_name == "exa_context_search":
+                            if not self.valves.EXA_API_KEY:
+                                result = "Error: EXA_API_KEY not configured"
+                                citations = []
+                            else:
+                                result, citations = await exa_context_search(
+                                    query=function_args["query"],
+                                    api_key=self.valves.EXA_API_KEY,
+                                    base_url=self.valves.EXA_API_BASE_URL,
+                                    tokens_num=self.valves.EXA_CONTEXT_TOKENS_NUM,
+                                    timeout=self.valves.TIMEOUT,
+                                )
+                            all_citations.extend(citations)
+                        else:
+                            result = f"Unknown tool: {function_name}"
+
+                        messages.append(
+                            {
+                                "tool_call_id": tool_call["id"],
+                                "role": "tool",
+                                "content": result,
+                            }
+                        )
+
+                    # Stream final response
+                    final_payload = {
+                        "model": self.valves.OPENROUTER_MODEL,
+                        "messages": messages,
+                        "temperature": 0.7,
+                        "stream": True,
+                    }
+
+                    async with client.stream(
+                        "POST",
+                        f"{self.valves.OPENROUTER_API_BASE_URL}/chat/completions",
+                        json=final_payload,
+                        headers=headers,
+                        timeout=self.valves.TIMEOUT,
+                    ) as final_r:
+                        final_r.raise_for_status()
+
+                        async for final_line in final_r.aiter_lines():
+                            final_parsed = self._parse_sse_line(final_line)
+                            if not final_parsed:
+                                continue
+
+                            try:
+                                final_delta = final_parsed.get("choices", [{}])[0].get("delta", {})
+                                if "content" in final_delta and final_delta["content"]:
+                                    yield final_delta["content"]
+                            except (KeyError, IndexError) as e:
+                                logger.warning(f"Error parsing final streaming response: {e}")
+                                continue
+
+        except httpx.HTTPStatusError as e:
+            error_msg = f"OpenRouter API error: {e.response.status_code} - {e.response.text}"
+            logger.error(error_msg)
+            yield f"Error: {error_msg}"
+        except Exception as e:
+            logger.exception("Error calling OpenRouter API")
+            yield f"Error: {str(e)}"
 
     async def pipe(
         self,
@@ -455,6 +690,10 @@ class Pipe:
             raise PipeExceptionError(msg)
 
         logger.info("API keys validated successfully")
+
+        # Check if streaming is requested
+        stream = body.get("stream", False)
+        logger.info(f"Streaming mode: {stream}")
 
         try:
             # Extract system message and conversation history
@@ -482,36 +721,57 @@ class Pipe:
 
             # Call OpenRouter with tools
             logger.info("Calling OpenRouter with tool support")
-            result_text, citations = await self._call_openrouter_with_tools(messages, [])
 
-            logger.info(f"OpenRouter response received, length: {len(result_text)}")
-            logger.info(f"Found {len(citations)} citations")
-            logger.info(f"Response preview: {result_text[:200]}...")
+            if stream:
+                # Streaming mode
+                all_citations = []
+                async for chunk in self._call_openrouter_with_tools_streaming(
+                    messages, all_citations
+                ):
+                    yield chunk
 
-            # Validate and log response before yielding
-            if not result_text or not result_text.strip():
-                logger.warning("Empty response detected, using fallback")
+                logger.info(f"Streaming completed, found {len(all_citations)} citations")
+
+                # Small delay to ensure response is displayed before sources
+                await asyncio.sleep(0.1)
+
+                # Emit sources after streaming all content
+                if all_citations:
+                    logger.info(f"Emitting {len(all_citations)} sources")
+                    await self._emit_sources(all_citations, __event_emitter__)
+                    logger.info("Sources emitted successfully")
+            else:
+                # Non-streaming mode
+                result_text, citations = await self._call_openrouter_with_tools(messages, [])
+
+                logger.info(f"OpenRouter response received, length: {len(result_text)}")
+                logger.info(f"Found {len(citations)} citations")
+                logger.info(f"Response preview: {result_text[:200]}...")
+
+                # Validate and log response before yielding
+                if not result_text or not result_text.strip():
+                    logger.warning("Empty response detected, using fallback")
+                    if citations:
+                        result_text = f"Based on my search, I found {len(citations)} relevant sources that should help answer your question."
+                    else:
+                        result_text = "I apologize, but I couldn't generate a response. Please try rephrasing your question."
+
+                logger.info(f"About to yield response of length {len(result_text)}")
+                logger.info(f"Response preview: {result_text[:100]}...")
+
+                # Yield the result
+                yield str(result_text)
+
+                logger.info("Response yielded successfully")
+
+                # Small delay to ensure response is displayed before sources
+                await asyncio.sleep(0.1)
+
+                # Emit sources after yielding the main content
                 if citations:
-                    result_text = f"Based on my search, I found {len(citations)} relevant sources that should help answer your question."
-                else:
-                    result_text = "I apologize, but I couldn't generate a response. Please try rephrasing your question."
-
-            logger.info(f"About to yield response of length {len(result_text)}")
-            logger.info(f"Response preview: {result_text[:100]}...")
-
-            # Yield the result
-            yield str(result_text)
-
-            logger.info("Response yielded successfully")
-
-            # Small delay to ensure response is displayed before sources
-            await asyncio.sleep(0.1)
-
-            # Emit sources after yielding the main content
-            if citations:
-                logger.info(f"Emitting {len(citations)} sources")
-                await self._emit_sources(citations, __event_emitter__)
-                logger.info("Sources emitted successfully")
+                    logger.info(f"Emitting {len(citations)} sources")
+                    await self._emit_sources(citations, __event_emitter__)
+                    logger.info("Sources emitted successfully")
 
         except Exception as e:
             logger.exception("Error in Exa OpenRouter Direct pipe")

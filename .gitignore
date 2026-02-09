@@ -3,7 +3,7 @@ CLAUDE.md
 AGENTS.md
 opencode.json
 .env
-
+.DS_Store
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
