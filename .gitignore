@@ -157,6 +157,10 @@ activemq-data/
 .env
 .envrc
 .venv
+.beads/
+
+# MCP configuration (contains API keys after setup)
+mcpo-config.json
 env/
 venv/
 ENV/

@@ -1,0 +1,41 @@
+services:
+  openwebui:
+    image: open-webui-custom:latest
+    container_name: open-webui
+    ports:
+      - "${WEBUI_PORT:-3000}:8080"
+    environment:
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - EXA_API_KEY=${EXA_API_KEY}
+      - PERPLEXITY_API_KEY=${PERPLEXITY_API_KEY}
+    volumes:
+      - open-webui:/app/backend/data
+      - ./functions:/app/custom-functions/functions
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
+    depends_on:
+      - mcpo
+    networks:
+      - openwebui-network
+
+  mcpo:
+    image: ghcr.io/open-webui/mcpo:main
+    container_name: mcpo
+    ports:
+      - "${MCPO_PORT:-8010}:8000"
+    environment:
+      - MCPO_API_KEY=${MCPO_API_KEY}
+    volumes:
+      - ./mcpo-config.json:/app/config/config.json
+    command: ["mcpo", "--config", "/app/config/config.json", "--hot-reload"]
+    restart: always
+    networks:
+      - openwebui-network
+
+networks:
+  openwebui-network:
+    driver: bridge
+
+volumes:
+  open-webui:
